@@ -15,23 +15,31 @@ mtcnn = MTCNN(image_size=160)
 facenet = InceptionResnetV1(pretrained="vggface2").eval()
 
 
+
+# Utility: write result to results.txt
+def write_result(text):
+    with open("results.txt", "a") as f:
+        f.write(text + "\n")
+
+
 # 2. Extract embedding from ONE image
 def get_embedding(image_path):
     img = Image.open(image_path).convert("RGB")
 
     print(f"\nLoaded: {image_path}, size={img.size}")
+    write_result(f"Loaded: {image_path}, size={img.size}")
 
     face = mtcnn(img)
 
     if face is None:
         print("⚠ No face found.")
+        write_result("⚠ No face found.")
         return None
 
     with torch.no_grad():
         emb = facenet(face.unsqueeze(0))
 
     return emb.squeeze(0)
-
 
 
 # 3. Build PERSON DATABASE
@@ -44,6 +52,8 @@ def build_database(root="persons"):
             continue
 
         print(f"\n🔵 Loading person: {person_name}")
+        write_result(f"\nLoading person: {person_name}")
+
         person_embeddings = []
 
         for file in os.listdir(person_folder):
@@ -59,14 +69,15 @@ def build_database(root="persons"):
         if person_embeddings:
             db[person_name] = torch.stack(person_embeddings)
             print(f" → {person_name}: {len(person_embeddings)} embeddings saved.")
+            write_result(f" → {person_name}: {len(person_embeddings)} embeddings saved.")
 
-    print(f"\nDATABASE READY: {list(db.keys())}")
+    print(f"\n DATABASE READY: {list(db.keys())}")
+    write_result(f"DATABASE READY: {list(db.keys())}")
     return db
 
 
-
-# 4. Compare a face with all persons
-def recognize_face(embedding, database, threshold=1.0):
+# 4. Compare face with all persons
+def recognize_face(embedding, database):
     best_name = None
     best_distance = float("inf")
 
@@ -81,10 +92,32 @@ def recognize_face(embedding, database, threshold=1.0):
     return best_name, best_distance
 
 
+# 5. Save unknown person
+def save_unknown_person(embedding, image_path, database):
+    # Generate new name
+    existing_unknowns = [p for p in database.keys() if p.startswith("unknown_")]
+    next_id = len(existing_unknowns) + 1
+    new_name = f"unknown_{next_id}"
 
-# 5. Process faces folder
+    # Create folder
+    new_folder = os.path.join("persons", new_name)
+    os.makedirs(new_folder, exist_ok=True)
+
+    # Copy the image for record
+    img = Image.open(image_path)
+    img.save(os.path.join(new_folder, "1.jpg"))
+
+    # Add to database
+    database[new_name] = embedding.unsqueeze(0)
+
+    print(f"→ New person saved as {new_name}")
+    write_result(f"→ New person saved as {new_name}")
+
+
+# 6. Process faces folder with -, +, ** and auto-add new persons
 def process_faces(database, folder="faces", threshold=1.0):
     print("\n🔍 Checking faces in:", folder)
+    write_result("\nChecking faces...")
 
     for file in os.listdir(folder):
         if not file.lower().endswith((".jpg", ".png", ".jpeg")):
@@ -94,19 +127,25 @@ def process_faces(database, folder="faces", threshold=1.0):
 
         print("\n===============================")
         print(f"Processing: {file}")
+        write_result(f"\nProcessing: {file}")
 
         emb = get_embedding(img_path)
 
         if emb is None:
-            print(f"-  (NO PERSON DETECTED)")
+            print("- NO PERSON DETECTED")
+            write_result("- NO PERSON DETECTED")
             continue
 
-        name, dist = recognize_face(emb, database, threshold)
+        name, dist = recognize_face(emb, database)
 
         if dist >= threshold:
-            print(f"+  PERSON DETECTED BUT UNKNOWN (dist={dist:.3f})")
+            print(f"+ UNKNOWN PERSON (dist={dist:.3f})")
+            write_result(f"+ UNKNOWN PERSON (dist={dist:.3f})")
+
+            save_unknown_person(emb, img_path, database)
         else:
             print(f"** PERSON IDENTIFIED: {name} (dist={dist:.3f})")
+            write_result(f"** PERSON IDENTIFIED: {name} (dist={dist:.3f})")
 
 
 # MAIN
