@@ -19,6 +19,7 @@ def write_result(text: str):
 
 # 1. Init models (MTCNN + FaceNet)
 device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Using device: {device}")
 
 mtcnn = MTCNN(image_size=160, device=device)
 facenet = InceptionResnetV1(pretrained="vggface2").eval().to(device)
